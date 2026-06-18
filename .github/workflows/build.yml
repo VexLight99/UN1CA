@@ -2,6 +2,15 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      source_fw_url:
+        description: 'SamFW Direct .zip Link for Source (S23)'
+        required: false
+        type: string
+      target_fw_url:
+        description: 'SamFW Direct .zip Link for Target (A34)'
+        required: false
+        type: string
   pull_request:
   push:
     branches:
@@ -67,6 +76,9 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/download_fw.sh
+        env:
+          SOURCE_FW_URL: ${{ github.event.inputs.source_fw_url }}
+          TARGET_FW_URL: ${{ github.event.inputs.target_fw_url }}
 
       - name: Extract stock firmwares
         run: |
