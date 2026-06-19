@@ -22,6 +22,7 @@ source "$SRC_DIR/scripts/utils/build_utils.sh" || exit 1
 FORCE=false
 BUILD_ROM=false
 BUILD_ZIP=true
+BUILD_TAR=true
 
 START_TIME="$(date +%s)"
 
@@ -41,6 +42,8 @@ PREPARE_SCRIPT()
             FORCE=true
         elif [[ "$1" == "--no-rom-zip" ]]; then
             BUILD_ZIP=false
+        elif [[ "$1" == "--no-rom-tar" ]]; then
+            BUILD_TAR=false
         else
             if [[ "$1" == "-"* ]]; then
                 LOGE "Unknown option: $1"
@@ -75,6 +78,7 @@ PRINT_USAGE()
     echo "Usage: make_rom [options]" >&2
     echo " -f, --force : Force ROM build" >&2
     echo " --no-rom-zip : Do not build ROM zip" >&2
+    echo " --no-rom-tar : Do not build ROM tar" >&2
 }
 # ]
 
