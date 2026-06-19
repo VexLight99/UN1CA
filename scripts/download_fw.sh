@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-#
-# Copyright (C) 2025 Salvo Giangreco
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
+# Copyright (c) 2025 Salvo Giangreco
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # [
 source "$SRC_DIR/scripts/utils/firmware_utils.sh" || exit 1
@@ -62,7 +48,6 @@ PREPARE_SCRIPT()
             FIRMWARES+=("${SOURCE_EXTRA_FIRMWARES[@]}")
         fi
     fi
-
     if ! $IGNORE_TARGET; then
         _CHECK_NON_EMPTY_PARAM "TARGET_FIRMWARE" "$TARGET_FIRMWARE" || exit 1
         FIRMWARES+=("$TARGET_FIRMWARE")
@@ -98,11 +83,10 @@ VERIFY_ODIN_PACKAGES()
 
         FILE_NAME="${FILE_NAME%.md5}"
 
-        # Samsung stores the output of `md5sum` at the very end of the file
-        LENGTH="32" # Length of MD5 hash
-        LENGTH="$((LENGTH + 2))" # 2 whitespace chars
-        LENGTH="$((LENGTH + ${#FILE_NAME}))" # File name without .md5 extension
-        LENGTH="$((LENGTH + 1))" # 1 newline char
+        LENGTH="32"
+        LENGTH="$((LENGTH + 2))"
+        LENGTH="$((LENGTH + ${#FILE_NAME}))"
+        LENGTH="$((LENGTH + 1))"
 
         STORED_HASH="$(tail -c "$LENGTH" "$f" | cut -d " " -f 1 -s)"
         if [ ! "$STORED_HASH" ] || [[ "${#STORED_HASH}" != "32" ]]; then
@@ -141,7 +125,6 @@ for i in "${FIRMWARES[@]}"; do
     LOG_STEP_IN
 
     if ! $FORCE; then
-        # Skip if firmware has been extracted and equal/newer than the one in FUS
         if [ -f "$FW_DIR/${MODEL}_${CSC}/.extracted" ]; then
             if COMPARE_SEC_BUILD_VERSION "$(cat "$FW_DIR/${MODEL}_${CSC}/.extracted")" "$LATEST_FIRMWARE"; then
                 LOG "\033[0;33m! This firmware has already been extracted, skipping\033[0m"
@@ -150,7 +133,6 @@ for i in "${FIRMWARES[@]}"; do
             fi
         fi
 
-        # Skip if firmware has already been downloaded
         if [ -f "$ODIN_DIR/${MODEL}_${CSC}/.downloaded" ]; then
             if ! COMPARE_SEC_BUILD_VERSION "$(cat "$ODIN_DIR/${MODEL}_${CSC}/.downloaded")" "$LATEST_FIRMWARE"; then
                 LOG "\033[0;33m! A newer firmware is available for download, use --force flag if you want to overwrite it\033[0m"
@@ -162,38 +144,32 @@ for i in "${FIRMWARES[@]}"; do
         fi
     fi
 
-    # Map URL from YML environment variables
-    FW_URL=""
-    if [[ "$SOURCE_FIRMWARE" == *"$MODEL"* ]]; then
-        FW_URL="${SOURCE_FW_URL:-}"
-    elif [[ "$TARGET_FIRMWARE" == *"$MODEL"* ]]; then
-        FW_URL="${TARGET_FW_URL:-}"
-    fi
-
-    if [[ -z "$FW_URL" ]]; then
-        LOGE "No SamFW URL provided for $MODEL. Define SOURCE_FW_URL or TARGET_FW_URL in YML."
-        exit 1
-    fi
-
-    ZIP_FILE="$ODIN_DIR/${MODEL}_${CSC}/$(basename "$FW_URL")"
-    if [[ "$ZIP_FILE" != *.zip ]]; then
-        ZIP_FILE="$ODIN_DIR/${MODEL}_${CSC}/firmware.zip"
-    fi
-
-    LOG "- Downloading $LATEST_FIRMWARE via SamFW direct link..."
+    LOG "- Downloading firmware..."
     [ -f "$ODIN_DIR/${MODEL}_${CSC}/.downloaded" ] && rm -rf "$ODIN_DIR/${MODEL}_${CSC}"
     mkdir -p "$ODIN_DIR/${MODEL}_${CSC}"
     
-    # Clean samloader-style progress bar, no dot spam
-    curl -fSL -C - -o "$ZIP_FILE" \
-         --progress-bar \
-         -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-         -H "Referer: https://samfw.com/" \
-         "$FW_URL" || {
-        LOG "\033[0;31m! SamFW download failed. Check your link or Cloudflare block.\033[0m"
-        exit 1
-    }
+    # SMFW Direct Download (Fixed IMEI Mismatch)
+    DOWNLOADED=false
+    FW_URL=""
+    
+    # Match by MODEL instead of full string to avoid IMEI mismatches
+    if [[ "$SOURCE_FIRMWARE" == *"$MODEL"* ]] && [ -n "$SOURCE_FW_URL" ]; then
+        FW_URL="$SOURCE_FW_URL"
+    elif [[ "$TARGET_FIRMWARE" == *"$MODEL"* ]] && [ -n "$TARGET_FW_URL" ]; then
+        FW_URL="$TARGET_FW_URL"
+    fi
 
+    if [ -n "$FW_URL" ]; then
+        wget --content-disposition --no-check-certificate --progress=bar:force:noscroll -P "$ODIN_DIR/${MODEL}_${CSC}" "$FW_URL" 2>&1 || true
+        DOWNLOADED=true
+    fi
+
+    if ! $DOWNLOADED; then
+        LOG "\033[0;31m! No matching FW URL found for $MODEL ($i). Ensure SOURCE_FW_URL or TARGET_FW_URL is set in YML.\033[0m"
+        exit 1
+    fi
+
+    ZIP_FILE="$(find "$ODIN_DIR/${MODEL}_${CSC}" -name "*.zip" | sort -r | head -n 1)"
     if [ ! "$ZIP_FILE" ] || [ ! -f "$ZIP_FILE" ]; then
         LOG "\033[0;31m! Download failed\033[0m"
         exit 1
@@ -204,7 +180,41 @@ for i in "${FIRMWARES[@]}"; do
 
     VERIFY_ODIN_PACKAGES
 
-    echo -n "$LATEST_FIRMWARE" > "$ODIN_DIR/${MODEL}_${CSC}/.downloaded"
+    # Detect actual firmware version from extracted files to prevent API mismatch
+    AP_FILE="$(find "$ODIN_DIR/${MODEL}_${CSC}" -maxdepth 1 -name "AP_*.tar.md5" | sort -r | head -n 1)"
+    CSC_FILE="$(find "$ODIN_DIR/${MODEL}_${CSC}" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | sort -r | head -n 1)"
+    CP_FILE="$(find "$ODIN_DIR/${MODEL}_${CSC}" -maxdepth 1 -name "CP_*.tar.md5" | sort -r | head -n 1)"
+
+    ACTUAL_PDA=""
+    ACTUAL_CSC=""
+    ACTUAL_CP=""
+
+    if [ -n "$AP_FILE" ]; then
+        ACTUAL_PDA="$(basename "$AP_FILE" | cut -d'_' -f2)"
+    fi
+    
+    if [ -n "$CSC_FILE" ]; then
+        CSC_BASE="$(basename "$CSC_FILE")"
+        if [[ "$CSC_BASE" == HOME_CSC_* ]]; then
+            ACTUAL_CSC="$(echo "$CSC_BASE" | cut -d'_' -f4)"
+        else
+            ACTUAL_CSC="$(echo "$CSC_BASE" | cut -d'_' -f3)"
+        fi
+    fi
+    
+    if [ -n "$CP_FILE" ]; then
+        ACTUAL_CP="$(basename "$CP_FILE" | cut -d'_' -f2)"
+    else
+        ACTUAL_CP="$ACTUAL_PDA"
+    fi
+
+    if [ -n "$ACTUAL_PDA" ] && [ -n "$ACTUAL_CSC" ]; then
+        ACTUAL_FIRMWARE="${ACTUAL_PDA}/${ACTUAL_CSC}/${ACTUAL_CP}"
+        echo -n "$ACTUAL_FIRMWARE" > "$ODIN_DIR/${MODEL}_${CSC}/.downloaded"
+        LOG "- Actual downloaded firmware: $ACTUAL_FIRMWARE"
+    else
+        echo -n "$LATEST_FIRMWARE" > "$ODIN_DIR/${MODEL}_${CSC}/.downloaded"
+    fi
 
     LOG_STEP_OUT; LOG_STEP_OUT
 done
