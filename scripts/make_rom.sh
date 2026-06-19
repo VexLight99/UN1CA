@@ -121,7 +121,12 @@ if $BUILD_ROM; then
     LOG_STEP_IN true "Creating work dir"
     "$SRC_DIR/scripts/internal/create_work_dir.sh" || exit 1
     LOG_STEP_OUT
-
+    
+    if [ -d "$SRC_DIR/unica/configs" ]; then
+        LOG_STEP_IN true "Applying SSI patches"
+        "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/unica/configs" || exit 1
+        LOG_STEP_OUT
+    fi
     if [ -d "$SRC_DIR/unica/patches" ]; then
         LOG_STEP_IN true "Applying ROM patches"
         "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/unica/patches" || exit 1
